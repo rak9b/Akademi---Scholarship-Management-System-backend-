@@ -56,7 +56,7 @@ async function getRegistryConnection() {
         }
         const user = encodeURIComponent(process.env.DB_USER);
         const pass = encodeURIComponent(process.env.DB_PASS);
-        uri = `mongodb+srv://${user}:${pass}@cluster0.wwjbp.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+        uri = `mongodb+srv://${user}:${pass}@cluster0sholarship.vv8m6fy.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0sholarship`;
     }
 
     if (!cachedClient) {
