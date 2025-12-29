@@ -146,6 +146,24 @@ app.post('/create-payment-intent', async (req, res) => {
 // Export the Express API checking for Vercel environment
 // Export the Express API checking for Vercel environment
 // Export the Express API checking for Vercel environment
+// Cached connection pattern
+let isConnected = false;
+async function connectDB() {
+    if (isConnected) return;
+    try {
+        await client.connect();
+        const database = client.db("Akademi");
+        scholarshipsCollection = database.collection("Scholarships");
+        userCollection = database.collection('Users');
+        reviewCollection = database.collection('Reviews');
+        applicationCollection = database.collection('Application');
+        isConnected = true;
+        console.log("✅ MongoDB Connected (Serverless)");
+    } catch (err) {
+        console.error("❌ MongoDB Connection Error:", err);
+    }
+}
+
 if (require.main === module) {
     bootstrap().then(() => {
         app.listen(port, () => {
@@ -153,8 +171,9 @@ if (require.main === module) {
         });
     });
 } else {
-    // For Vercel, we need to export the app but also ensure DB connects
-    bootstrap().catch(console.error);
+    // Vercel Serverless Handler Wrapper
+    module.exports = async (req, res) => {
+        await connectDB();
+        return app(req, res);
+    };
 }
-
-module.exports = app;
