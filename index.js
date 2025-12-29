@@ -146,4 +146,12 @@ app.post('/create-payment-intent', async (req, res) => {
     }
 });
 
-bootstrap();
+// Export the Express API checking for Vercel environment
+if (process.env.NODE_ENV !== 'production') {
+    bootstrap();
+} else {
+    // For Vercel, we need to export the app but also ensure DB connects
+    bootstrap().catch(console.error);
+}
+
+module.exports = app;
