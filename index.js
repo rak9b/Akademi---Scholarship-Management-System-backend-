@@ -39,10 +39,7 @@ async function bootstrap() {
     } catch (err) {
         console.error("❌ MongoDB Connection Failure. Running with degraded functionality.", err.message);
     } finally {
-        // Start server regardless of DB status to prevent blank pages
-        app.listen(port, () => {
-            console.log(`🚀 Elite Server active on port ${port}`);
-        });
+        // Database connection attempt finished
     }
 }
 
@@ -147,8 +144,13 @@ app.post('/create-payment-intent', async (req, res) => {
 });
 
 // Export the Express API checking for Vercel environment
+// Export the Express API checking for Vercel environment
 if (process.env.NODE_ENV !== 'production') {
-    bootstrap();
+    bootstrap().then(() => {
+        app.listen(port, () => {
+            console.log(`🚀 Elite Server active on port ${port}`);
+        });
+    });
 } else {
     // For Vercel, we need to export the app but also ensure DB connects
     bootstrap().catch(console.error);
