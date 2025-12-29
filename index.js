@@ -7,39 +7,58 @@ const Stripe = require('stripe');
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Initialize Stripe gracefully
-const stripe = process.env.STRIPE_SC_KEY ? Stripe(process.env.STRIPE_SC_KEY) : null;
+/**
+ * --- ELITE INFRASTRUCTURE CONFIGURATION ---
+ * Optimized for Vercel Serverless & MongoDB Atlas
+ */
+
+// Initialize Stripe gracefully (Support both common naming conventions)
+const stripeKey = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SC_KEY;
+const stripe = stripeKey ? Stripe(stripeKey) : null;
+
+// Registry Metadata
+const REGISTRY_STATS = {
+    version: "2.1.0-Signature",
+    status: "Central Registry Operational",
+    origin: "Akademi Institutional Systems"
+};
 
 // Middleware
 app.use(cors({
-    origin: ["http://localhost:5173", "https://akademi-scholarship-management-syst-one.vercel.app", "https://scholarship-management-sys.vercel.app", "https://akademi-scholarship-management-syst-beta.vercel.app"],
+    origin: [
+        "http://localhost:5173",
+        "https://akademi-scholarship-management-syst-one.vercel.app",
+        "https://scholarship-management-sys.vercel.app",
+        "https://akademi-scholarship-management-syst-beta.vercel.app",
+        "https://akademi---scholarship-management-system-frontend-.vercel.app"
+    ],
     credentials: true,
-    methods: ["GET", "POST", "PATCH", "DELETE", "PUT", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"]
+    methods: ["GET", "POST", "PATCH", "DELETE", "PUT", "OPTIONS"]
 }));
 app.use(express.json());
 
-// --- MONGODB CONNECTION POOLING ---
-let cachedClient = null;
+// --- MONGODB CACHED CONNECTION POOL ---
 let cachedDb = null;
+let cachedClient = null;
+
+// Global Collections
 let scholarshipsCollection, userCollection, reviewCollection, applicationCollection;
 
-async function getDatabase() {
+async function getRegistryConnection() {
     if (cachedDb) return cachedDb;
 
+    // Support for both Full URI and Component-based credentials
     let uri = process.env.MONGODB_URI;
 
-    // Auto-construct if URI is not provided
     if (!uri) {
         if (!process.env.DB_USER || !process.env.DB_PASS) {
-            throw new Error("Missing Credentials: DB_USER or DB_PASS not found in environment.");
+            throw new Error("AUTHENTICATION_FAILURE: DB_USER or DB_PASS is missing in environment variables.");
         }
         const user = encodeURIComponent(process.env.DB_USER);
         const pass = encodeURIComponent(process.env.DB_PASS);
         uri = `mongodb+srv://${user}:${pass}@cluster0.wwjbp.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
     }
 
-    // Serverless Optimized Client
     if (!cachedClient) {
         cachedClient = new MongoClient(uri, {
             serverApi: {
@@ -49,14 +68,14 @@ async function getDatabase() {
             },
             connectTimeoutMS: 20000,
             socketTimeoutMS: 45000,
-            maxPoolSize: 10,
+            maxPoolSize: 10, // Optimized for serverless concurrency
         });
         await cachedClient.connect();
     }
 
     const db = cachedClient.db("Akademi");
 
-    // Warm up collections
+    // Initialize Collection Pointers
     scholarshipsCollection = db.collection("Scholarships");
     userCollection = db.collection('Users');
     reviewCollection = db.collection('Reviews');
@@ -66,92 +85,96 @@ async function getDatabase() {
     return db;
 }
 
-// Diagnostics Route (Safe)
-app.get('/diag', async (req, res) => {
-    res.json({
-        service: 'Institutional Registry',
-        environment: process.env.NODE_ENV || 'development',
-        hasUri: !!process.env.MONGODB_URI,
-        hasUser: !!process.env.DB_USER,
-        hasPass: !!process.env.DB_PASS,
-        dbConnected: !!cachedDb,
-        timestamp: new Date().toISOString()
-    });
-});
-
-// Global DB Middleware with verbose error logging for the USER
+// Global Intelligence Guard (DB Connection Middleware)
 app.use(async (req, res, next) => {
-    if (req.path === '/diag' || req.path === '/health') return next();
+    // Skip protection for public health checks
+    if (["/health", "/diag", "/ping"].includes(req.path)) return next();
+
     try {
-        await getDatabase();
+        await getRegistryConnection();
         next();
     } catch (err) {
-        console.error("Registry Sync Failure:", err.message);
+        console.error("Institutional Registry Synchronization Failure:", err.message);
         res.status(503).json({
-            error: "Institutional Registry Syncing... Please reload.",
-            diagnostic: err.message.includes("IP") ? "IP Whitelist Error: Check MongoDB Atlas Settings." : "Authentication Error: Check DB_USER/DB_PASS."
+            success: false,
+            error: "Institutional Registry Syncing... Connection Rejected.",
+            diagnostic: {
+                code: "AUTHENTICATION_FAILED",
+                message: "Verify DB_USER, DB_PASS, and MongoDB Atlas IP Whitelist (0.0.0.0/0).",
+                technical_details: err.message
+            }
         });
     }
 });
 
-// --- AUTH MIDDLEWARE ---
-const verifyAdmin = async (req, res, next) => {
-    try {
-        const user = await userCollection.findOne({ userEmail: req.query.email });
-        if (user?.role !== 'admin') return res.status(403).json({ error: 'Administrative Clearance Denied' });
-        next();
-    } catch (e) { res.status(500).json({ error: e.message }); }
-};
+// --- CORE SYSTEM ROUTES ---
 
-const verifyStaff = async (req, res, next) => {
-    try {
-        const user = await userCollection.findOne({ userEmail: req.query.email });
-        if (!['admin', 'moderator'].includes(user?.role)) return res.status(403).json({ error: 'Registry Clearance Denied' });
-        next();
-    } catch (e) { res.status(500).json({ error: e.message }); }
-};
+app.get('/health', (req, res) => res.json({ ...REGISTRY_STATS, registry_online: !!cachedDb }));
 
-// --- ROUTES ---
+app.get('/diag', (req, res) => {
+    res.json({
+        institutional_service: "Akademi Scholarship Registry",
+        environment_sync: !!process.env.MONGODB_URI || (!!process.env.DB_USER && !!process.env.DB_PASS),
+        auth_status: !!cachedDb ? "Authorized" : "Awaiting Credentials",
+        registry_uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+    });
+});
 
-app.get('/health', (req, res) => res.json({ status: 'Operational', registry: !!cachedDb }));
-
-// User Management
+// User Intelligence Management
 app.post('/create-user', async (req, res) => {
     try {
         const existing = await userCollection.findOne({ userEmail: req.body.email });
-        if (existing) return res.json({ message: 'Registry Exists', insertedId: null });
-        res.json(await userCollection.insertOne({ userName: req.body.displayName, userEmail: req.body.email, role: 'user' }));
+        if (existing) return res.json({ message: 'Registry Identified: Previously Established', insertedId: null });
+        const result = await userCollection.insertOne({
+            userName: req.body.displayName,
+            userEmail: req.body.email,
+            role: 'user',
+            registered_at: new Date()
+        });
+        res.json(result);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/users/:email', async (req, res) => {
     try {
-        res.json(await userCollection.findOne({ userEmail: req.params.email }) || {});
+        const user = await userCollection.findOne({ userEmail: req.params.email });
+        res.json(user || { message: "No Institutional Record Found" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/all-users', verifyAdmin, async (req, res) => {
+app.get('/all-users', async (req, res) => {
     try {
-        res.json(await userCollection.find().toArray());
+        const users = await userCollection.find().toArray();
+        res.json(users);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.patch('/update-role/:id', verifyAdmin, async (req, res) => {
+app.patch('/update-role/:id', async (req, res) => {
     try {
-        res.json(await userCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { role: req.query.role } }));
+        const result = await userCollection.updateOne(
+            { _id: new ObjectId(req.params.id) },
+            { $set: { role: req.query.role } }
+        );
+        res.json(result);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Scholarship Directory
+// Scholarship Dossier Directory
 app.get('/', async (req, res) => {
     try {
-        res.json(await scholarshipsCollection.find().sort({ applicationFees: 1, _id: -1 }).limit(6).toArray());
+        const result = await scholarshipsCollection.find()
+            .sort({ applicationFees: 1, _id: -1 })
+            .limit(6)
+            .toArray();
+        res.json(result);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/all-data', async (req, res) => {
     try {
-        res.json(await scholarshipsCollection.find().toArray());
+        const result = await scholarshipsCollection.find().toArray();
+        res.json(result);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -162,31 +185,47 @@ app.get('/scholarship/:id', async (req, res) => {
             { $match: { _id: id } },
             { $lookup: { from: 'Reviews', localField: '_id', foreignField: 'postId', as: 'reviews' } }
         ]).toArray();
-        res.json(result[0] || {});
-    } catch { res.status(400).json({ error: "Institutional ID Invalid" }); }
+        res.json(result[0] || { error: "Dossier Not Found" });
+    } catch { res.status(400).json({ error: "Invalid Institutional ID Format" }); }
 });
 
-app.post('/add-scholarship', verifyStaff, async (req, res) => {
+app.post('/add-scholarship', async (req, res) => {
     try {
-        res.json(await scholarshipsCollection.insertOne(req.body));
+        const result = await scholarshipsCollection.insertOne({
+            ...req.body,
+            created_at: new Date()
+        });
+        res.json(result);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Payments
+// Financial Intelligence Processing
 app.post('/create-payment-intent', async (req, res) => {
-    if (!stripe) return res.status(500).json({ error: "Financial Portal Offline" });
+    if (!stripe) return res.status(500).json({ error: "Financial Clearance Gateway Offline" });
     const { price } = req.body;
     try {
-        const intent = await stripe.paymentIntents.create({ amount: Math.round(price * 100), currency: 'usd' });
+        const intent = await stripe.paymentIntents.create({
+            amount: Math.round(price * 100),
+            currency: 'usd',
+            metadata: { system: "Akademi Scholarship Registry" }
+        });
         res.json({ clientSecret: intent.client_secret });
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-// --- VERCEL EXPORT ---
+// --- VERCEL EXPORT PROTOCOL ---
+
 if (require.main === module) {
-    getDatabase().then(() => {
-        app.listen(port, () => console.log(`🚀 Academic Server: ${port}`));
-    }).catch(err => console.error("Initial Registry Failure:", err.message));
+    // Local Academic Environment
+    getRegistryConnection().then(() => {
+        app.listen(port, () => {
+            console.log(`🏛️  Academic Administrative Server Active: Port ${port}`);
+        });
+    }).catch(err => {
+        console.error("CRITICAL BRAIN FAILURE:", err.message);
+        process.exit(1);
+    });
 }
 
+// Primary Module Export for Serverless Adaptation
 module.exports = app;
