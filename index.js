@@ -145,7 +145,8 @@ app.post('/create-payment-intent', async (req, res) => {
 
 // Export the Express API checking for Vercel environment
 // Export the Express API checking for Vercel environment
-if (process.env.NODE_ENV !== 'production') {
+// Export the Express API checking for Vercel environment
+if (require.main === module) {
     bootstrap().then(() => {
         app.listen(port, () => {
             console.log(`🚀 Elite Server active on port ${port}`);
